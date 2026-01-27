@@ -1,0 +1,12 @@
+# scrapy job dirs
+jobdir*
+jobdir_trend*
+
+# outputs
+output/
+
+# sqlite caches
+*.sqlite
+
+# env
+.env
