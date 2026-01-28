@@ -46,6 +46,9 @@ def main():
     parser.add_argument("--keywords", default=os.getenv("KEYWORDS_FILE", "output/keywords.txt"))
     parser.add_argument("--out", default=os.getenv("OUTPUT_JSONL", "output/trend.jsonl"))
     parser.add_argument("--shards", type=int, default=int(os.getenv("PARALLEL_SHARDS", "5")))
+    parser.add_argument("--jobdir-prefix", default=os.getenv("TREND_JOBDIR_PREFIX", "jobdir_trend"))
+    parser.add_argument("--output-prefix", default=os.getenv("TREND_OUTPUT_PREFIX", "output/trend_part"))
+    parser.add_argument("--keywords-prefix", default=os.getenv("TREND_KEYWORDS_PREFIX", "output/keywords_part"))
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -61,11 +64,11 @@ def main():
         for i, words in enumerate(chunks, start=1):
             if not words:
                 continue
-            chunk_file = Path("output") / f"keywords_part{i}.txt"
+            chunk_file = Path(f"{args.keywords_prefix}{i}.txt")
             write_chunk(chunk_file, words)
 
             env = os.environ.copy()
-            env["OUTPUT_JSONL"] = f"output/trend_part{i}.jsonl"
+            env["OUTPUT_JSONL"] = f"{args.output_prefix}{i}.jsonl"
             env["TREND_CACHE_PATH"] = f"trend_cache_part{i}.sqlite"
             env["FAILED_URLS_PATH"] = f"output/failed_urls_trend_part{i}.txt"
 
@@ -76,19 +79,19 @@ def main():
                 "-a",
                 f"keywords_file={chunk_file}",
                 "-s",
-                f"JOBDIR=jobdir_trend_{i}",
+                f"JOBDIR={args.jobdir_prefix}_{i}",
             ]
 
             print(f"[trend shard {i}] keywords: {chunk_file}")
-            print(f"  output: output/trend_part{i}.jsonl")
-            print(f"  jobdir: jobdir_trend_{i}")
+            print(f"  output: {args.output_prefix}{i}.jsonl")
+            print(f"  jobdir: {args.jobdir_prefix}_{i}")
 
             if args.dry_run:
                 continue
 
             proc = subprocess.Popen(cmd, env=env)
             procs.append(proc)
-            shard_meta.append((i, f"jobdir_trend_{i}"))
+            shard_meta.append((i, f"{args.jobdir_prefix}_{i}"))
 
         if args.dry_run:
             return

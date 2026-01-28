@@ -19,6 +19,7 @@ https://weibo.zhaoyizhe.com/
 5.这个网站在获取热搜走势时需要不断向网站发送抓包请求，连续较高频抓去一段时间会被拒绝ConnectionRefused；但重现再运行就又可以爬取；所以python scripts/run_trend_parallel_backoff.py --keywords output/keywords.txt --out output/trend.jsonl --shards 5
 中设置了遇到超时或者被拒绝时，暂停一段时间再开始发送请求
 6.为了防止中途错误后停留一段时间继续爬取有遗漏，最后再重新运行一下python scripts/run_trend_parallel_backoff.py --keywords output/keywords.txt --out output/trend.jsonl --shards 5
+7.上述方案为本项目实施，第6点的方案有点麻烦，所以项目结束后修改了一下，改为不利用jobdir，而是利用sqlite成功库记录已经爬取成功的数据，这样就不会出现爬取失败的数据因为中断而被遗漏的问题
 
 rm -rf jobdir
 rm -rf output
@@ -26,7 +27,7 @@ rm trend_cache.sqlite
 
 
 python scripts/extract_to_excel.py \
-  -i output/weibo_total_20191025_20251231.jsonl \
+  -i output/joined_filled_2.jsonl \
   -o output/weibo_total_extract.xlsx
   
 ## 并行加速（5 路分片）

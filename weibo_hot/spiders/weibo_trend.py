@@ -26,6 +26,8 @@ class WeiboTrendSpider(scrapy.Spider):
         self.keywords_file = keywords_file or os.getenv("KEYWORDS_FILE", "output/keywords.txt")
         self._aes_cipher = AES.new(self.aes_key, AES.MODE_ECB)
         self.conn = None
+        self.trend_source = "superInfo"
+        self.skip_success = True
 
     @classmethod
     def from_crawler(cls, crawler, *args, **kwargs):
@@ -35,6 +37,8 @@ class WeiboTrendSpider(scrapy.Spider):
 
     def _init_from_settings(self, settings):
         self.trend_cache_path = settings.get("TREND_CACHE_PATH", "trend_cache.sqlite")
+        self.trend_source = str(settings.get("TREND_SOURCE", "superInfo")).strip()
+        self.skip_success = bool(int(str(settings.get("TREND_SKIP_SUCCESS", "1")).strip()))
         self.conn = sqlite3.connect(self.trend_cache_path)
         self.conn.execute(
             """
@@ -92,6 +96,12 @@ class WeiboTrendSpider(scrapy.Spider):
             "points": row[3],
         }
 
+    def _trend_cache_has_success(self, topic: str) -> bool:
+        cached = self._trend_cache_get(topic)
+        if not cached:
+            return False
+        return bool(cached.get("first_date")) and bool(cached.get("last_date"))
+
     def _trend_cache_set(self, topic: str, first_date: str, last_date: str, duration_minutes: int, points: int) -> None:
         self.conn.execute(
             """
@@ -115,13 +125,19 @@ class WeiboTrendSpider(scrapy.Spider):
                 keyword = line.strip()
                 if not keyword:
                     continue
-                url = f"{self.base_url}/data/superInfo?keyword={quote(keyword)}"
+                if self.skip_success and self._trend_cache_has_success(keyword):
+                    continue
+                if self.trend_source.lower() == "liftingdiagram":
+                    url = f"{self.base_url}/data/liftingDiagram?keyword={quote(keyword)}"
+                else:
+                    url = f"{self.base_url}/data/superInfo?keyword={quote(keyword)}"
                 yield scrapy.Request(
                     url,
                     headers=headers,
                     callback=self.parse_trend,
                     errback=self.errback_trend,
                     meta={"keyword": keyword},
+                    dont_filter=True,
                 )
 
     def parse_trend(self, response: scrapy.http.Response):
@@ -134,33 +150,51 @@ class WeiboTrendSpider(scrapy.Spider):
             return
         if payload.get("code") != 1:
             return
-
         data = payload.get("data", []) or []
-        seen = set()
-        first_time = None
-        last_time = None
-        for d in data:
-            if not isinstance(d, dict):
-                continue
-            value = d.get("value")
-            if not isinstance(value, list) or not value:
-                continue
-            t = str(value[0])
-            seen.add(t)
-            if first_time is None or t < first_time:
-                first_time = t
-            if last_time is None or t > last_time:
-                last_time = t
 
-        duration_minutes = len(seen)
+        if self.trend_source.lower() == "liftingdiagram":
+            dates = set()
+            first_time = None
+            last_time = None
+            for d in data:
+                if not isinstance(d, dict):
+                    continue
+                t = d.get("date")
+                if not t:
+                    continue
+                t = str(t)
+                dates.add(t)
+                if first_time is None or t < first_time:
+                    first_time = t
+                if last_time is None or t > last_time:
+                    last_time = t
+            duration_value = len(dates)
+        else:
+            seen = set()
+            first_time = None
+            last_time = None
+            for d in data:
+                if not isinstance(d, dict):
+                    continue
+                value = d.get("value")
+                if not isinstance(value, list) or not value:
+                    continue
+                t = str(value[0])
+                seen.add(t)
+                if first_time is None or t < first_time:
+                    first_time = t
+                if last_time is None or t > last_time:
+                    last_time = t
+            duration_value = len(seen)
+
         if first_time and last_time:
-            self._trend_cache_set(keyword, first_time, last_time, duration_minutes, len(seen))
+            self._trend_cache_set(keyword, first_time, last_time, duration_value, duration_value)
 
         yield {
             "keyword": keyword,
             "trend_first_time": first_time,
             "trend_last_time": last_time,
-            "trend_duration_days": duration_minutes,
+            "trend_duration_days": duration_value,
         }
 
     def errback_trend(self, failure):
